@@ -125,7 +125,7 @@ try:
     if st.button("Authenticate Google Account"):
         st.session_state['begin_auth'] = True
         # Request OAuth URL from the FastAPI backend
-        response = requests.get(f"{'https://libackend-40b431c4b11a.herokuapp.com'}/auth?user_id={'intros'}")
+        response = requests.get(f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/auth?user_id={'intros'}")
         if response.status_code == 200:
             # Get the authorization URL from the response
             auth_url = response.json().get('authorization_url')
@@ -145,7 +145,7 @@ try:
             with st.spinner("Finalizing authentication..."):
                 for i in range(6):
                     # Request token from the FastAPI backend
-                    response = requests.get(f"{'https://libackend-40b431c4b11a.herokuapp.com'}/token/{'intros'}")
+                    response = requests.get(f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/token/{'intros'}")
                     if response.status_code == 200:
                         st.session_state['creds'] = response.json().get('creds')
                         print(st.session_state['creds'])
@@ -374,7 +374,7 @@ def get_authenticated_service():
         message='Please configure OAuth 2.0')
 
     # Set the redirect_uri property of the flow object
-    flow.redirect_uri = "https://libackend-40b431c4b11a.herokuapp.com/callback"
+    flow.redirect_uri = "https://leadership-initiatives-0c372bea22f2.herokuapp.com/callback"
 
     storage = Storage("%s-oauth2.json" % sys.argv[0])
     credentials = storage.get()
