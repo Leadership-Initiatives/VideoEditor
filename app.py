@@ -318,7 +318,7 @@ if uploaded is not None and program and video_button and st.session_state['final
     st.success("Videos successfully generated!")
     
 # Streamlit UI
-st.header("Video Stitcher")
+st.header("Video Stitching Tool")
 stitch_folder = st.text_input("URL of the Google Drive folder to upload videos to:")
 
 # File upload widget
