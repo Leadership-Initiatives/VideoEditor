@@ -27,7 +27,7 @@ def wait_for_s3_object(s3, bucket, key, local_filepath):
         ("waited")
         time.sleep(1)
         
-def concatenate_videos_aws(intro_resized_filename, main_filename, outro_resized_filename, output_filename, service, stitch_folder):
+def concatenate_videos_aws(intro_resized_filename, main_filename, output_filename, service, stitch_folder):
     # Dictionary to hold AWS credentials
     aws_credentials = {}
 
@@ -93,17 +93,6 @@ def concatenate_videos_aws(intro_resized_filename, main_filename, outro_resized_
             'FileInput': f's3://{BUCKET_NAME}/{S3_INPUT_PREFIX}{main_filename}',
             'AudioSelectors': {
                 'Audio Selector 2': {
-                    'DefaultSelection': 'DEFAULT',
-                    'SelectorType': 'TRACK',
-                    'Offset': 0,
-                    'ProgramSelection': 1,
-                }
-            }
-        },
-        {
-            'FileInput': f's3://{BUCKET_NAME}/{S3_INPUT_PREFIX}{outro_resized_filename}',
-            'AudioSelectors': {
-                'Audio Selector 3': {
                     'DefaultSelection': 'DEFAULT',
                     'SelectorType': 'TRACK',
                     'Offset': 0,
@@ -242,7 +231,7 @@ def upload_video(stream, folder_id, service, output_filename):
 import requests
 from io import BytesIO
 
-def process_video(data):
+def intro_process_video(data):
     row_number, row, videos_directory, creds_dict, stitch_folder = data
     creds = Credentials.from_authorized_user_info(creds_dict)
     service = build('drive', 'v3', credentials=creds)
@@ -298,7 +287,7 @@ def process_video(data):
 
     # Concatenate video clips
     output_filename = f"{row['name']}_final.mp4"
-    concatenate_videos_aws(f'{unique_id}_intro.mp4', f'{unique_id}_main.mp4', "outro.mp4", output_filename, service, stitch_folder)
+    concatenate_videos_aws(f'{unique_id}_intro.mp4', f'{unique_id}_main.mp4', output_filename, service, stitch_folder)
 
     return row['name']
 
@@ -307,4 +296,3 @@ def stream_video_to_s3(service, file_id, s3_filename, s3_client, bucket_name, s3
     response = request.execute()
     stream = BytesIO(response)
     s3_client.upload_fileobj(stream, bucket_name, s3_prefix + s3_filename)
-
