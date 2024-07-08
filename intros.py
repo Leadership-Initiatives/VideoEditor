@@ -11,6 +11,50 @@ import time
 from googleapiclient.errors import ResumableUploadError
 import ssl
 import re
+from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip
+
+def overlay_audio_and_upload(s3_url, output_filename, stitch_folder, service):
+    # Download the video from S3
+    response = requests.get(s3_url, stream=True)
+    temp_video_path = 'temp_video.mp4'
+    with open(temp_video_path, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+
+    # Load the video and audio
+    video = VideoFileClip(temp_video_path)
+    audio = AudioFileClip("intro_audio.mp3")
+
+    # If the audio is longer than the video, trim it
+    if audio.duration > video.duration:
+        audio = audio.subclip(0, video.duration)
+    else:
+        # If the audio is shorter, loop it
+        audio = audio.audio_loop(duration=video.duration)
+
+    # Overlay the audio
+    final_clip = video.set_audio(audio)
+
+    # Write the result to a file
+    temp_output_path = 'temp_output.mp4'
+    final_clip.write_videofile(temp_output_path, codec='libx264', audio_codec='aac')
+
+    # Close the clips
+    video.close()
+    audio.close()
+    final_clip.close()
+
+    # Upload the file to Google Drive
+    file_metadata = {'name': output_filename, 'parents': [stitch_folder]}
+    media = MediaFileUpload(temp_output_path, resumable=True)
+    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+
+    # Clean up temporary files
+    os.remove(temp_video_path)
+    os.remove(temp_output_path)
+
+    return file['id']
 
 def wait_for_s3_object(s3, bucket, key, local_filepath):
     """
@@ -189,18 +233,16 @@ def concatenate_videos_aws(intro_resized_filename, main_filename, output_filenam
             print('Maximum number of retries reached. Job submission failed.')
             return
     
-        # Use Google Drive API to upload the video from S3 to Google Drive
+        # Use the new function to overlay audio and upload to Google Drive
         s3_url = f'https://{BUCKET_NAME}.s3.amazonaws.com/{S3_OUTPUT_PREFIX}{output_filename.rsplit(".", 1)[0]}.mp4'
-        response = requests.get(s3_url, stream=True)
-        upload_video(response.raw, stitch_folder, service, output_filename)
+        file_id = overlay_audio_and_upload(s3_url, output_filename, stitch_folder, service)
+        print(f"File uploaded to Google Drive with ID: {file_id}")
 
         # Clean up the S3 bucket by deleting the files
-        s3_client.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_intro.mp4')
-        s3_client.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_main.mp4')
-        s3_client.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_outro.mp4')
-        s3_client.delete_object(Bucket=BUCKET_NAME, Key=S3_OUTPUT_PREFIX + output_filename.rsplit(".", 1)[0] + '.mp4')
+        s3.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_intro.mp4')
+        s3.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_main.mp4')
+        s3.delete_object(Bucket=BUCKET_NAME, Key=S3_OUTPUT_PREFIX + output_filename.rsplit(".", 1)[0] + '.mp4')
         return
-
 
     except Exception as e:
         print('Error:', e)
@@ -286,7 +328,7 @@ def intro_process_video(data):
         s3.upload_file(row['intro'], BUCKET_NAME, S3_INPUT_PREFIX + f'{unique_id}_intro.mp4')
 
     # Concatenate video clips
-    output_filename = f"{row['name']}_final.mp4"
+    output_filename = f"{row['name']}"
     concatenate_videos_aws(f'{unique_id}_intro.mp4', f'{unique_id}_main.mp4', output_filename, service, stitch_folder)
 
     return row['name']
