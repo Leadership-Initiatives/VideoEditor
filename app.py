@@ -181,7 +181,8 @@ uploaded= st.file_uploader(label="Upload a CSV file", type=['csv'])
 configuration = shotstack.Configuration(host = "https://api.shotstack.io/v1")
 configuration.api_key['DeveloperKey'] = "PudC3eZKBond8D64AHAE2UNbwcdEvvbjuEr3Sm7b"
 
-video_button = st.button("Process Videos")
+solo_video_button = st.button("Process Solo Videos")
+team_video_button = st.button("Process Team Videos")
 
 def get_video_info(filename):
     result = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filename],
@@ -197,7 +198,107 @@ def download_file(url, local_filename):
                 f.write(chunk)
     return local_filename
 
-if uploaded is not None and program and video_button and st.session_state['final_auth']:
+if uploaded is not None and program and team_video_button and st.session_state['final_auth']:
+    with st.spinner("Processing videos (may take a few minutes)..."):
+        folder_id = extract_id_from_url(folder_id)
+        # Load the CSV file into a dataframe
+        dataframe = pd.read_csv(uploaded)
+
+        # Create API client
+        with shotstack.ApiClient(configuration) as api_client:
+            api_instance = edit_api.EditApi(api_client)
+
+            progress_report = st.empty()
+            i = 1
+            # Loop over the rows of the dataframe
+            for index, row in dataframe.iterrows():
+                # Create the merge fields for this row
+                merge_fields = [
+                    MergeField(find="program_name", replace=program),
+                    MergeField(find="name1", replace=row.get('name1', '') if pd.notna(row.get('name1', '')) else ''),
+                    MergeField(find="name2", replace=row.get('name2', '') if pd.notna(row.get('name2', '')) else ''),
+                    MergeField(find="name3", replace=row.get('name3', '') if pd.notna(row.get('name3', '')) else ''),
+                    MergeField(find="name4", replace='Class of ' + str(round(row['year'])) if 'year' in row and pd.notna(row['year']) else row.get('name4', '') if pd.notna(row.get('name4', '')) else ''),
+                    MergeField(find="name5", replace=row.get('name5', '') if pd.notna(row.get('name5', '')) else ''),
+                    MergeField(find="name6", replace=row.get('name6', '') if pd.notna(row.get('name6', '')) else ''),
+                    MergeField(find="name7", replace=row.get('name7', '') if pd.notna(row.get('name7', '')) else ''),
+                    MergeField(find="name8", replace=row.get('name8', '') if pd.notna(row.get('name8', '')) else ''),
+                ]
+
+                # Create the template render object
+                template = TemplateRender(
+                    id="edf5ffeb-3334-400a-949d-3356c348f1d9",
+                    merge=merge_fields
+                )
+
+
+                try:
+                    # Post the template render
+                    api_response = api_instance.post_template_render(template)
+
+                    # Display the message
+                    message = api_response['response']['message']
+                    id = api_response['response']['id']
+                    print(f"{message}")
+
+                    # Poll the API until the video is ready
+                    status = 'queued'
+                    while status != 'done':
+                        time.sleep(1)
+                        try:
+                            status_response = api_instance.get_render(id)
+                            status = status_response.response.status
+                            print(status)
+                        except shotstack.exceptions.ApiTypeError as e:
+                            print(f"Error in API response: {e}")
+                            # Log the error and continue
+                            status = 'done'  # Force exit from the loop
+
+                    # Construct the video URL
+                    video_url = f"https://cdn.shotstack.io/au/v1/1cr8ajwibd/{id}.mp4"
+                    print(video_url)
+
+                    name = row.get('name', row.get('name1', 'unnamed'))
+                    main_video_file = f"{name}_main.mp4"
+                    time.sleep(5)
+                    # Directly write the downloaded content to a file
+                    download_file(video_url, main_video_file)
+
+                    # Prepare data for process_video function
+                    videos_directory = os.getcwd()
+                    CLIENT_SECRET_FILE = 'credentials.json'
+                    with open(CLIENT_SECRET_FILE, 'r') as f:
+                        client_info = json.load(f)['web']
+                    creds_dict = st.session_state['creds']
+                    creds_dict['client_id'] = client_info['client_id']
+                    creds_dict['client_secret'] = client_info['client_secret']
+                    creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+                    # Create a mock row for process_video function
+                    mock_row = {
+                        'name': name,
+                        'intro': os.path.join(videos_directory, 'intro_li.mp4'),
+                        'main': main_video_file
+                    }
+
+
+                    process_video_data = (index, mock_row, videos_directory, creds_dict, folder_id)
+                    intro_process_video(process_video_data)
+
+                    # Remove temporary main video file
+                    os.remove(main_video_file)
+
+                except Exception as e:
+
+                    print(f"Unable to generate or process video for {name}: {e}")
+                    traceback.print_exc()
+
+                progress_report.text(f"Video progress: {i}/{len(dataframe)}")
+                i+=1
+
+    st.success("Videos successfully generated, processed, and uploaded!")
+
+if uploaded is not None and program and solo_video_button and st.session_state['final_auth']:
     with st.spinner("Processing videos (may take a few minutes)..."):
         folder_id = extract_id_from_url(folder_id)
         # Load the CSV file into a dataframe
@@ -218,14 +319,11 @@ if uploaded is not None and program and video_button and st.session_state['final
                     MergeField(find="school", replace=row.get('school', row.get('name2', ''))),
                     MergeField(find="location", replace=row.get('location', row.get('name3', ''))),
                     MergeField(find="year", replace='Class of ' + str(round(row['year'])) if 'year' in row else row.get('name4', '')),
-                    MergeField(find="name5", replace=row.get('name5', '')),
-                    MergeField(find="name6", replace=row.get('name6', '')),
-                    MergeField(find="name7", replace=row.get('name7', '')),
                 ]
 
                 # Create the template render object
                 template = TemplateRender(
-                    id = "edf5ffeb-3334-400a-949d-3356c348f1d9",
+                    id = "58dbf2dc-eded-4a71-a629-1bcefe025709",
                     merge = merge_fields
                 )
 
@@ -294,7 +392,7 @@ if uploaded is not None and program and video_button and st.session_state['final
                 i+=1
 
     st.success("Videos successfully generated, processed, and uploaded!")
-    
+
 # Streamlit UI
 st.header("Video Stitching Tool")
 stitch_folder = st.text_input("URL of the Google Drive folder to upload videos to:")
