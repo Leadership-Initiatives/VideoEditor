@@ -302,9 +302,74 @@ def process_video(data):
 
     return row['name']
 
-def stream_video_to_s3(service, file_id, s3_filename, s3_client, bucket_name, s3_prefix):
-    request = service.files().get_media(fileId=file_id)
-    response = request.execute()
-    stream = BytesIO(response)
-    s3_client.upload_fileobj(stream, bucket_name, s3_prefix + s3_filename)
+import io
+import logging
+import time
+from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.errors import HttpError
 
+import os
+import time
+import logging
+from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.errors import HttpError
+
+def stream_video_to_s3(service, file_id, s3_filename, s3_client, bucket_name, s3_prefix):
+    start_time = time.time()
+    try:
+        # Get the file metadata to get the file size
+        file_metadata = service.files().get(fileId=file_id, fields="size,name").execute()
+        file_size = int(file_metadata['size'])
+        file_name = file_metadata['name']
+        print(f"Starting download of file: {file_name} (ID: {file_id}), Size: {file_size / (1024*1024):.2f} MB")
+
+        # Set up the download request
+        request = service.files().get_media(fileId=file_id)
+
+        # Create a BytesIO object to store the downloaded chunks
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request, chunksize=1000*1024*1024)
+
+        # Download the file in chunks
+        done = False
+        last_progress = 0
+        stall_count = 0
+        while not done:
+            try:
+                status, done = downloader.next_chunk(num_retries=5)
+                if status:
+                    progress = int(status.progress() * 100)
+                    if progress > last_progress:
+                        print(f"Download {progress}% complete.")
+                        last_progress = progress
+                        stall_count = 0
+                    else:
+                        stall_count += 1
+                        if stall_count > 10:  # If progress stalls for 10 iterations
+                            print(f"Download seems to be stalled at {progress}%")
+                            stall_count = 0
+            except HttpError as e:
+                logging.error(f"HTTP error during download: {e}")
+                if e.resp.status in [403, 500, 503]:  # Retry on these errors
+                    logging.info("Retrying download...")
+                    time.sleep(5)
+                else:
+                    raise
+
+        # Reset buffer position to the beginning
+        buffer.seek(0)
+
+        # Upload to S3
+        logging.info(f"Starting upload to S3: {s3_prefix + s3_filename}")
+        s3_client.upload_fileobj(buffer, bucket_name, s3_prefix + s3_filename)
+
+        end_time = time.time()
+        logging.info(f"File {file_id} successfully streamed to S3 as {s3_filename}")
+        logging.info(f"Total time taken: {end_time - start_time:.2f} seconds")
+
+    except Exception as e:
+        logging.error(f"Error streaming file {file_id} to S3: {str(e)}")
+        raise
+
+    finally:
+        buffer.close()

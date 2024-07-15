@@ -35,6 +35,7 @@ import moviepy.editor as mp
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
 import subprocess
 import traceback
+from googleapiclient.errors import HttpError
 
 st.set_page_config(
     page_title='VideoEditor',
@@ -174,8 +175,8 @@ with col2:
     # Text input for the program name
     program = st.text_input("Enter the Program Name:")
 
-# File upload widget
-uploaded= st.file_uploader(label="Upload a CSV file", type=['csv'])
+# In app.py, replace the file uploader with a text input for the Google Sheet URL
+sheet_url = st.text_input("Enter the URL of the Google Sheet:")
 
 # Configure the Shotstack API
 configuration = shotstack.Configuration(host = "https://api.shotstack.io/v1")
@@ -198,11 +199,42 @@ def download_file(url, local_filename):
                 f.write(chunk)
     return local_filename
 
-if uploaded is not None and program and team_video_button and st.session_state['final_auth']:
+if sheet_url is not None and program and team_video_button and st.session_state['final_auth']:
     with st.spinner("Processing videos (may take a few minutes)..."):
         folder_id = extract_id_from_url(folder_id)
         # Load the CSV file into a dataframe
-        dataframe = pd.read_csv(uploaded)
+        # Extract the sheet ID from the URL
+        # Extract the sheet ID from the URL
+        sheet_id = extract_id_from_url(sheet_url)
+        st.session_state['creds']['refresh_token'] = st.session_state['creds']['_refresh_token']
+        # Use the Google Sheets API to fetch the data
+        creds = Credentials.from_authorized_user_info(st.session_state['creds'])
+        service = build('sheets', 'v4', credentials=creds)
+        sheet = service.spreadsheets()
+        result = sheet.values().get(spreadsheetId=sheet_id, range='A:Z').execute()
+        values = result.get('values', [])
+        
+        if not values:
+            st.error('No data found in the sheet.')
+        else:
+            # Convert the sheet data to a DataFrame
+            headers = values[0]
+            data = values[1:]
+            
+            # Ensure all rows have the same number of columns as the header
+            max_cols = len(headers)
+            data = [row + [''] * (max_cols - len(row)) for row in data]
+            
+            try:
+                dataframe = pd.DataFrame(data, columns=headers)
+            except ValueError as e:
+                st.error(f"Error creating DataFrame: {e}")
+                st.error("Please ensure your Google Sheet has consistent column headers and data.")
+                st.stop()
+
+            # Display the first few rows of the dataframe for verification
+            # st.write("First few rows of the data:")
+            # st.write(dataframe.head())
 
         # Create API client
         with shotstack.ApiClient(configuration) as api_client:
@@ -282,7 +314,7 @@ if uploaded is not None and program and team_video_button and st.session_state['
                     }
 
 
-                    process_video_data = (index, mock_row, videos_directory, creds_dict, folder_id)
+                    process_video_data = (index, mock_row, videos_directory, creds_dict, folder_id, sheet_id)
                     intro_process_video(process_video_data)
 
                     # Remove temporary main video file
@@ -298,11 +330,41 @@ if uploaded is not None and program and team_video_button and st.session_state['
 
     st.success("Videos successfully generated, processed, and uploaded!")
 
-if uploaded is not None and program and solo_video_button and st.session_state['final_auth']:
+if sheet_url is not None and program and solo_video_button and st.session_state['final_auth']:
     with st.spinner("Processing videos (may take a few minutes)..."):
         folder_id = extract_id_from_url(folder_id)
         # Load the CSV file into a dataframe
-        dataframe = pd.read_csv(uploaded)
+        # Extract the sheet ID from the URL
+        sheet_id = extract_id_from_url(sheet_url)
+        
+        # Use the Google Sheets API to fetch the data
+        creds = Credentials.from_authorized_user_info(st.session_state['creds'])
+        service = build('sheets', 'v4', credentials=creds)
+        sheet = service.spreadsheets()
+        result = sheet.values().get(spreadsheetId=sheet_id, range='A:Z').execute()
+        values = result.get('values', [])
+        
+        if not values:
+            st.error('No data found in the sheet.')
+        else:
+            # Convert the sheet data to a DataFrame
+            headers = values[0]
+            data = values[1:]
+            
+            # Ensure all rows have the same number of columns as the header
+            max_cols = len(headers)
+            data = [row + [''] * (max_cols - len(row)) for row in data]
+            
+            try:
+                dataframe = pd.DataFrame(data, columns=headers)
+            except ValueError as e:
+                st.error(f"Error creating DataFrame: {e}")
+                st.error("Please ensure your Google Sheet has consistent column headers and data.")
+                st.stop()
+
+            # Display the first few rows of the dataframe for verification
+            # st.write("First few rows of the data:")
+            # st.write(dataframe.head())
 
         # Create API client
         with shotstack.ApiClient(configuration) as api_client:
@@ -427,18 +489,18 @@ if stitch_button and st.session_state['final_auth'] and stitch_folder and stitch
 
         i = 0
 
-        with ProcessPoolExecutor(max_workers=15) as executor:
-            futures = [executor.submit(process_video, arg) for arg in arguments]
-
-            for future, arg in zip(as_completed(futures), arguments):
-                try:
-                    result = future.result()
-                    i += 1
-                    stitch_progress.text(f"Video Progress: {i}/{len(arguments)}")
-                except Exception as e:
-                    # Assuming the 'arg' is a tuple and the first element is the row number
-                    row_number = arg[0]
-                    print(f'Exception at row {row_number + 2}: {e}')
+        for arg in arguments:
+            try:
+                result = process_video(arg)
+                i += 1
+                stitch_progress.text(f"Video Progress: {i}/{len(arguments)}")
+            except Exception as e:
+                # Assuming the 'arg' is a tuple and the first element is the row number
+                row_number = arg[0]
+                error_message = f"Exception at row {row_number + 2}: {e}"
+                error_type = type(e).__name__
+                print(f"{error_message}\nError Type: {error_type}\nException Args: {e.args}")
+                traceback.print_exc()  # Print the stack trace
     st.success("Videos successfully concatenated and uploaded!")
 
 # Define the required scopes
@@ -537,4 +599,3 @@ if st.button("Upload videos to youtube") and video_uploads:
             i+=1
             os.remove(video_file)
 
-        

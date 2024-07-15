@@ -12,6 +12,7 @@ from googleapiclient.errors import ResumableUploadError
 import ssl
 import re
 from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip
+import logging
 
 def overlay_audio_and_upload(s3_url, output_filename, stitch_folder, service):
     # Download the video from S3
@@ -49,11 +50,12 @@ def overlay_audio_and_upload(s3_url, output_filename, stitch_folder, service):
     file_metadata = {'name': output_filename, 'parents': [stitch_folder]}
     media = MediaFileUpload(temp_output_path, resumable=True)
     file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-
-    # Clean up temporary files
-    os.remove(temp_video_path)
-    os.remove(temp_output_path)
-
+    try:
+        # Clean up temporary files
+        os.remove(temp_video_path)
+        os.remove(temp_output_path)
+    except:
+        print("error removing temp files")
     return file['id']
 
 def wait_for_s3_object(s3, bucket, key, local_filepath):
@@ -70,7 +72,28 @@ def wait_for_s3_object(s3, bucket, key, local_filepath):
             pass
         ("waited")
         time.sleep(1)
-        
+
+def create_shareable_link(service, file_id):
+    try:
+        # Create a permission for anyone with the link to view the file
+        permission = {
+            'type': 'anyone',
+            'role': 'reader',
+            'allowFileDiscovery': False
+        }
+        service.permissions().create(fileId=file_id, body=permission).execute()
+
+        # Get the webViewLink (shareable link) for the file
+        file = service.files().get(fileId=file_id, fields='webViewLink').execute()
+        return file.get('webViewLink')
+    except Exception as e:
+        print(f"Error creating shareable link: {e}")
+        return None
+    
+
+
+
+       
 def concatenate_videos_aws(intro_resized_filename, main_filename, output_filename, service, stitch_folder):
     # Dictionary to hold AWS credentials
     aws_credentials = {}
@@ -238,14 +261,18 @@ def concatenate_videos_aws(intro_resized_filename, main_filename, output_filenam
         file_id = overlay_audio_and_upload(s3_url, output_filename, stitch_folder, service)
         print(f"File uploaded to Google Drive with ID: {file_id}")
 
-        # Clean up the S3 bucket by deleting the files
-        s3.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_intro.mp4')
-        s3.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_main.mp4')
-        s3.delete_object(Bucket=BUCKET_NAME, Key=S3_OUTPUT_PREFIX + output_filename.rsplit(".", 1)[0] + '.mp4')
-        return
+        try:
+            # Clean up the S3 bucket by deleting the files
+            s3.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_intro.mp4')
+            s3.delete_object(Bucket=BUCKET_NAME, Key=S3_INPUT_PREFIX + f'{unique_id}_main.mp4')
+            s3.delete_object(Bucket=BUCKET_NAME, Key=S3_OUTPUT_PREFIX + output_filename.rsplit(".", 1)[0] + '.mp4')
+        except:
+            return file_id
+        return file_id
 
     except Exception as e:
         print('Error:', e)
+        return file_id
 
     return
 
@@ -274,10 +301,10 @@ import requests
 from io import BytesIO
 
 def intro_process_video(data):
-    row_number, row, videos_directory, creds_dict, stitch_folder = data
+    row_number, row, videos_directory, creds_dict, stitch_folder, sheet_id = data
     creds = Credentials.from_authorized_user_info(creds_dict)
     service = build('drive', 'v3', credentials=creds)
-
+    sheets_service = build('sheets', 'v4', credentials=creds)
     # Create a unique identifier based on the row name
     unique_id = row['name']
 
@@ -329,7 +356,52 @@ def intro_process_video(data):
 
     # Concatenate video clips
     output_filename = f"{row['name']}"
-    concatenate_videos_aws(f'{unique_id}_intro.mp4', f'{unique_id}_main.mp4', output_filename, service, stitch_folder)
+
+    # After concatenating videos and uploading to Google Drive
+    file_id = concatenate_videos_aws(f'{unique_id}_intro.mp4', f'{unique_id}_main.mp4', output_filename, service, stitch_folder)
+    print(file_id)
+    # Generate the share link
+    try:
+        file = service.files().get(fileId=file_id, fields='webViewLink').execute()
+        share_link = file.get('webViewLink')
+
+        # Update the Google Sheet with the share link
+        range_name = f'A{row_number+2}:Z{row_number+2}'  # Assuming row_number is 0-indexed
+        result = sheets_service.spreadsheets().values().get(spreadsheetId=sheet_id, range=range_name).execute()
+        row_values = result.get('values', [[]])[0]
+        
+        # Find the 'link' column or add it if it doesn't exist
+        headers = sheets_service.spreadsheets().values().get(spreadsheetId=sheet_id, range='A1:Z1').execute().get('values', [[]])[0]
+        if 'link' not in headers:
+            headers.append('link')
+            sheets_service.spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range='A1:Z1',
+                valueInputOption='RAW',
+                body={'values': [headers]}
+            ).execute()
+        
+        link_column = headers.index('link')
+        
+        # Extend row_values if necessary
+        while len(row_values) <= link_column:
+            row_values.append('')
+        
+
+        
+        row_values[link_column] = share_link
+        logging.info(f"Updated row values: {row_values}")
+
+        update_result = sheets_service.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=range_name,
+            valueInputOption='RAW',
+            body={'values': [row_values]}
+        ).execute()
+        print(f"Sheet update result: {update_result}")
+
+    except HttpError as error:
+        print(f'An error occurred: {error}')
 
     return row['name']
 
