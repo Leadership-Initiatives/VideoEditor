@@ -316,8 +316,10 @@ from googleapiclient.errors import HttpError
 
 def stream_video_to_s3(service, file_id, s3_filename, s3_client, bucket_name, s3_prefix):
     start_time = time.time()
+    buffer = io.BytesIO()
+
     try:
-        # Get the file metadata to get the file size
+        # Get file metadata
         file_metadata = service.files().get(fileId=file_id, fields="size,name").execute()
         file_size = int(file_metadata['size'])
         file_name = file_metadata['name']
@@ -325,33 +327,20 @@ def stream_video_to_s3(service, file_id, s3_filename, s3_client, bucket_name, s3
 
         # Set up the download request
         request = service.files().get_media(fileId=file_id)
-
-        # Create a BytesIO object to store the downloaded chunks
-        buffer = io.BytesIO()
-        downloader = MediaIoBaseDownload(buffer, request, chunksize=1000*1024*1024)
+        downloader = MediaIoBaseDownload(buffer, request, chunksize=50*1024*1024)
 
         # Download the file in chunks
         done = False
-        last_progress = 0
-        stall_count = 0
         while not done:
             try:
                 status, done = downloader.next_chunk(num_retries=5)
                 if status:
                     progress = int(status.progress() * 100)
-                    if progress > last_progress:
-                        print(f"Download {progress}% complete.")
-                        last_progress = progress
-                        stall_count = 0
-                    else:
-                        stall_count += 1
-                        if stall_count > 10:  # If progress stalls for 10 iterations
-                            print(f"Download seems to be stalled at {progress}%")
-                            stall_count = 0
+                    print(f"Download {progress}% complete.")
             except HttpError as e:
-                logging.error(f"HTTP error during download: {e}")
-                if e.resp.status in [403, 500, 503]:  # Retry on these errors
-                    logging.info("Retrying download...")
+                print(f"HTTP error during download: {e}")
+                if e.resp.status in [403, 500, 503]:
+                    print("Retrying download...")
                     time.sleep(5)
                 else:
                     raise
@@ -359,17 +348,69 @@ def stream_video_to_s3(service, file_id, s3_filename, s3_client, bucket_name, s3
         # Reset buffer position to the beginning
         buffer.seek(0)
 
-        # Upload to S3
-        logging.info(f"Starting upload to S3: {s3_prefix + s3_filename}")
-        s3_client.upload_fileobj(buffer, bucket_name, s3_prefix + s3_filename)
+        # Upload to S3 in chunks
+        print(f"Starting upload to S3: {s3_prefix + s3_filename}")
+        
+        # Initiate multipart upload
+        mpu = s3_client.create_multipart_upload(Bucket=bucket_name, Key=s3_prefix + s3_filename)
+        
+        parts = []
+        chunk_size = 50 * 1024 * 1024  # 5MB chunks
+        part_number = 1
+        total_bytes_uploaded = 0
+        
+        while True:
+            chunk = buffer.read(chunk_size)
+            if not chunk:
+                break
+            
+            # Upload part
+            part = s3_client.upload_part(
+                Body=chunk,
+                Bucket=bucket_name,
+                Key=s3_prefix + s3_filename,
+                UploadId=mpu['UploadId'],
+                PartNumber=part_number
+            )
+            
+            parts.append({
+                'PartNumber': part_number,
+                'ETag': part['ETag']
+            })
+            
+            total_bytes_uploaded += len(chunk)
+            upload_percentage = (total_bytes_uploaded / file_size) * 100
+            print(f"Upload {upload_percentage:.2f}% complete. (Part {part_number})")
+            part_number += 1
+        
+        # Complete multipart upload
+        s3_client.complete_multipart_upload(
+            Bucket=bucket_name,
+            Key=s3_prefix + s3_filename,
+            UploadId=mpu['UploadId'],
+            MultipartUpload={'Parts': parts}
+        )
 
         end_time = time.time()
-        logging.info(f"File {file_id} successfully streamed to S3 as {s3_filename}")
-        logging.info(f"Total time taken: {end_time - start_time:.2f} seconds")
+        print(f"File {file_id} successfully streamed to S3 as {s3_filename}")
+        print(f"Total time taken: {end_time - start_time:.2f} seconds")
 
     except Exception as e:
-        logging.error(f"Error streaming file {file_id} to S3: {str(e)}")
+        print(f"Error streaming file {file_id} to S3: {str(e)}")
         raise
 
     finally:
         buffer.close()
+
+
+
+
+
+
+
+
+
+
+
+
+        
