@@ -114,7 +114,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Enter the intended output Google drive folder link, as well as the program name of the students.")
     st.write("- If a solo intern video, upload a csv with columns PRECISELY titled 'name', 'school', 'location', and 'class'.")
     st.write("- If a group video, upload a csv with columns PRECISELY titled 'name1', 'name2', 'name3'.... (max 7 interns).")
-    st.write("- Click 'Process Videos' to begin intro video renderings and view them in your destination Google drive folder.")
+    st.write("- Click 'Process Solo Videos' or 'Process Team Videos' (depending on your intended output format) to begin intro video renderings and view them in your destination Google drive folder.")
     st.subheader("Video Stitcher")
     st.write("- Enter the intended output Google drive folder link")
     st.write("- Upload a csv with columns PRECISELY titled 'name', 'intro', and 'main' (reffering to the intro and main video share links).")
@@ -122,6 +122,14 @@ with st.expander("Click to view full directions for this site"):
     st.subheader("Automatic Youtube Uploader")
     st.write("- Upload a csv with columns PRECISELY titled 'title' and 'video' (the video column should have a Google drive share link).")
     st.write("- Click 'Upload videos to youtube' and view them in your youtube channel.")
+    st.subheader("Video Stitcher")
+    st.write("- Enter the name of the intended input and output folder within the 'video-stitch' folder located in the baillymarshall@lichange.org aws account.")
+    st.write("- Ensure that all videos within the input folder are in groups with format [name]_intro.mp4 and [name]_main.mp4.")
+    st.write("- Click 'Start Concatenation' to begin video stitching and view them in your destination s3 output folder wtihin the video-stich folder.")
+    st.subheader("Presentation Downloader Tool")
+    st.write("- NOTE: This tool is only intended for use within a local environment (not on the streamlit cloud).")
+    st.write("- Enter a csv file with columns PRECISELY named 'name', 'intro', and 'main', each containing a column of google drive video links.")
+    st.write("- Click 'Download Videos' to begin video downloads locally that are in the correct naming convention for use of the S3 Video Stitcher. Find them in the local directory within folders called 'intro_videos' and 'main_videos'.")
 
 st.header("Google Authentication")
 
