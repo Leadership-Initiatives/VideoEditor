@@ -124,11 +124,11 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Click 'Upload videos to youtube' and view them in your youtube channel.")
     st.subheader("Video Stitcher")
     st.write("- Enter the name of the intended input and output folder within the 'video-stitch' folder located in the baillymarshall@lichange.org aws account.")
-    st.write("- Ensure that all videos within the input folder are in groups with format [name]_intro.mp4 and [name]_main.mp4.")
+    st.write("- Ensure that all videos within the input folder are in groups with format [name]_intro.mp4, [name]_main.mp4., and [name]_judge.mp4 (optional).")
     st.write("- Click 'Start Concatenation' to begin video stitching and view them in your destination s3 output folder wtihin the video-stich folder.")
     st.subheader("Presentation Downloader Tool")
     st.write("- NOTE: This tool is only intended for use within a local environment (not on the streamlit cloud).")
-    st.write("- Enter a csv file with columns PRECISELY named 'name', 'intro', and 'main', each containing a column of google drive video links.")
+    st.write("- Enter a csv file with columns PRECISELY named 'name', 'intro', 'main', and 'judge' (optional), each containing a column of google drive video links.")
     st.write("- Click 'Download Videos' to begin video downloads locally that are in the correct naming convention for use of the S3 Video Stitcher. Find them in the local directory within folders called 'intro_videos' and 'main_videos'.")
 
 st.header("Google Authentication")
@@ -726,49 +726,46 @@ def list_s3_files(bucket_name, prefix=''):
 def match_video_pairs(files):
     pairs = []
     
-    # First, match _intro and _main pairs
+    # First, match _intro, _main, and _judge pairs
     intro_videos = [f for f in files if f.endswith('_intro.mp4')]
     main_videos = [f for f in files if f.endswith('_main.mp4')]
+    judge_videos = [f for f in files if f.endswith('_judge.mp4')]
     
     for intro in intro_videos:
         name = intro.split('_')[0]
         main = next((m for m in main_videos if m.startswith(name)), None)
+        judge = next((j for j in judge_videos if j.startswith(name)), None)
         if main:
-            pairs.append((intro, main))
-    
-    # Then, match files with the same name but different extensions
-    remaining_files = [f for f in files if not (f.endswith('_intro.mp4') or f.endswith('_main.mp4'))]
-    for file in remaining_files:
-        name = file.split('.')[0]  # Get the name without extension
-        matching_main = next((m for m in main_videos if m.startswith(name)), None)
-        if matching_main:
-            pairs.append((file, matching_main))
+            pairs.append((intro, main, judge))
     
     return pairs
 
-def create_mediaconvert_job(input_key1, input_key2, output_key):
-    job_settings = {
-        "Inputs": [
-            {
-                "AudioSelectors": {
-                    "Audio Selector 1": {
-                        "DefaultSelection": "DEFAULT"
-                    }
-                },
-                "VideoSelector": {},
-                "TimecodeSource": "ZEROBASED",
-                "FileInput": f"s3://{BUCKET_NAME}/{input_key1}"
+def create_mediaconvert_job(input_key1, input_key2, input_key3, output_key):
+    inputs = [
+        {
+            "AudioSelectors": {
+                "Audio Selector 1": {
+                    "DefaultSelection": "DEFAULT"
+                }
             },
-            {
-                "AudioSelectors": {
-                    "Audio Selector 1": {
-                        "DefaultSelection": "DEFAULT"
-                    }
-                },
-                "VideoSelector": {},
-                "TimecodeSource": "ZEROBASED",
-                "FileInput": f"s3://{BUCKET_NAME}/{input_key2}"
+            "VideoSelector": {},
+            "TimecodeSource": "ZEROBASED",
+            "FileInput": f"s3://{BUCKET_NAME}/{input_key1}"
+        },
+        {
+            "AudioSelectors": {
+                "Audio Selector 1": {
+                    "DefaultSelection": "DEFAULT"
+                }
             },
+            "VideoSelector": {},
+            "TimecodeSource": "ZEROBASED",
+            "FileInput": f"s3://{BUCKET_NAME}/{input_key2}"
+        }
+    ]
+
+    if input_key3:
+        inputs.append(
             {
                 "AudioSelectors": {
                     "Audio Selector 1": {
@@ -777,9 +774,25 @@ def create_mediaconvert_job(input_key1, input_key2, output_key):
                 },
                 "VideoSelector": {},
                 "TimecodeSource": "ZEROBASED",
-                "FileInput": "s3://li-general-task/input_videos/outro.mp4"
+                "FileInput": f"s3://{BUCKET_NAME}/{input_key3}"
             }
-        ],
+        )
+
+    inputs.append(
+        {
+            "AudioSelectors": {
+                "Audio Selector 1": {
+                    "DefaultSelection": "DEFAULT"
+                }
+            },
+            "VideoSelector": {},
+            "TimecodeSource": "ZEROBASED",
+            "FileInput": "s3://li-general-task/input_videos/outro.mp4"
+        }
+    )
+
+    job_settings = {
+        "Inputs": inputs,
         "OutputGroups": [
             {
                 "Name": "File Group",
@@ -925,6 +938,7 @@ if (video_csv and st.session_state['final_auth']) and download_videos:
             # Create directories if they don't exist
             os.makedirs('intro_videos', exist_ok=True)
             os.makedirs('main_videos', exist_ok=True)
+            os.makedirs('judge_videos', exist_ok=True)
 
             total_rows = len(df)
             progress_bar = st.progress(0)
@@ -934,6 +948,7 @@ if (video_csv and st.session_state['final_auth']) and download_videos:
                 name = row['name']
                 intro_url = row['intro']
                 main_url = row['main']
+                judge_url = row.get('judge', None)
 
                 # Download intro video
                 intro_file_id = extract_file_id(intro_url)
@@ -946,6 +961,13 @@ if (video_csv and st.session_state['final_auth']) and download_videos:
                 main_output_path = os.path.join('main_videos', f"{name}_main.mp4")
                 download_file_from_google_drive(main_file_id, main_output_path, drive_service)
                 print(f"Row {index + 1}/{total_rows}: Downloaded main video for {name}")
+
+                # Download judge video if it exists
+                if judge_url:
+                    judge_file_id = extract_file_id(judge_url)
+                    judge_output_path = os.path.join('judge_videos', f"{name}_judge.mp4")
+                    download_file_from_google_drive(judge_file_id, judge_output_path, drive_service)
+                    print(f"Row {index + 1}/{total_rows}: Downloaded judge video for {name}")
 
                 # Update progress
                 progress = (index + 1) / total_rows
