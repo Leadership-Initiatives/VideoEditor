@@ -866,8 +866,8 @@ if st.button("Start Concatenation"):
             
             print("Debug: Matched video pairs")
             if pairs:
-                for intro, main in pairs:
-                    print(f"Intro: {intro} - Main: {main}")
+                for intro, main, judge in pairs:
+                    print(f"Intro: {intro} - Main: {main} - Judge: {judge}")
             else:
                 print("No matching video pairs found.")
             
@@ -875,17 +875,17 @@ if st.button("Start Concatenation"):
                 st.warning("No matching video pairs found in the S3 bucket.")
             else:
                 progress_bar = st.progress(0)
-                for i, (intro, main) in enumerate(pairs):
+                for i, (intro, main, judge) in enumerate(pairs):
                     try:
                         name = intro.split('_')[0]
                         if name.lower().endswith('.mp4'):
                             name = name[:-4]
                         output_key = f"{output_folder}/{name}_final.mp4"
                         
-                        print(f"Processing: Intro - {intro}, Main - {main}")
+                        print(f"Processing: Intro - {intro}, Main - {main}, Judge - {judge}")
                         print(f"Output: {output_key}")
 
-                        job_id = create_mediaconvert_job(intro, main, output_key)
+                        job_id = create_mediaconvert_job(intro, main, judge, output_key)
                         if job_id:
                             print(f"MediaConvert job created with ID: {job_id}. (Video #{i+1} for {name})")
                             time.sleep(5)
@@ -898,11 +898,12 @@ if st.button("Start Concatenation"):
                         else:
                             print("Failed to create MediaConvert job.")
                             progress_bar.progress((i + 1) / len(pairs))
-                    except:
-                        print(f"Error processing line {i+1}.")
+                    except Exception as e:
+                        print(f"Error processing line {i+1}: {e}")
                         progress_bar.progress((i + 1) / len(pairs))
                 
                 st.success("Video stitching jobs submitted successfully!")
+
 
 st.header("Presentation Downloader Tool")
 
@@ -964,10 +965,13 @@ if (video_csv and st.session_state['final_auth']) and download_videos:
 
                 # Download judge video if it exists
                 if judge_url:
-                    judge_file_id = extract_file_id(judge_url)
-                    judge_output_path = os.path.join('judge_videos', f"{name}_judge.mp4")
-                    download_file_from_google_drive(judge_file_id, judge_output_path, drive_service)
-                    print(f"Row {index + 1}/{total_rows}: Downloaded judge video for {name}")
+                    try:
+                        judge_file_id = extract_file_id(judge_url)
+                        judge_output_path = os.path.join('judge_videos', f"{name}_judge.mp4")
+                        download_file_from_google_drive(judge_file_id, judge_output_path, drive_service)
+                        print(f"Row {index + 1}/{total_rows}: Downloaded judge video for {name}")
+                    except:
+                        print(f"Couldn't download judge video for row {i+1}.")
 
                 # Update progress
                 progress = (index + 1) / total_rows
