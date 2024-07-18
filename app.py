@@ -880,7 +880,7 @@ if st.button("Start Concatenation"):
                         name = intro.split('_')[0]
                         if name.lower().endswith('.mp4'):
                             name = name[:-4]
-                        output_key = f"{output_folder}/{name}_final.mp4"
+                        output_key = f"{output_folder}/{name}_final"
                         
                         print(f"Processing: Intro - {intro}, Main - {main}, Judge - {judge}")
                         print(f"Output: {output_key}")
