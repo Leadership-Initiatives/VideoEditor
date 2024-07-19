@@ -125,7 +125,7 @@ with st.expander("Click to view full directions for this site"):
     st.subheader("Video Stitcher")
     st.write("- Enter the name of the intended input and output folder within the 'video-stitch' folder located in the baillymarshall@lichange.org aws account.")
     st.write("- Ensure that all videos within the input folder are in groups with format [name]_intro.mp4, [name]_main.mp4., and [name]_judge.mp4 (optional).")
-    st.write("- Click 'Start Concatenation' to begin video stitching and view them in your destination s3 output folder wtihin the video-stich folder.")
+    st.write("- Click 'Start Concatenation' to begin video stitching and view them in your destination s3 output folder wtihin the video-stich folder (there will be a subfolder within the output folder created, named after the input folder).")
     st.subheader("Presentation Downloader Tool")
     st.write("- NOTE: This tool is only intended for use within a local environment (not on the streamlit cloud).")
     st.write("- Enter a csv file with columns PRECISELY named 'name', 'intro', 'main', and 'judge' (optional), each containing a column of google drive video links.")
