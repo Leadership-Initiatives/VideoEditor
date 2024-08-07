@@ -113,7 +113,7 @@ with st.expander("Click to view full directions for this site"):
     st.subheader("Video Intro Generator")
     st.write("- Enter the intended output Google drive folder link, as well as the program name of the students.")
     st.write("- If a solo intern video, upload a csv with columns PRECISELY titled 'name', 'school', 'location', and 'class'.")
-    st.write("- If a group video, upload a csv with columns PRECISELY titled 'name1', 'name2', 'name3'.... (max 7 interns).")
+    st.write("- If a group video, upload a csv with columns PRECISELY titled 'name1', 'name2', 'name3', .... , 'name8' (max 8 interns).")
     st.write("- Click 'Process Solo Videos' or 'Process Team Videos' (depending on your intended output format) to begin intro video renderings and view them in your destination Google drive folder.")
     st.subheader("Video Stitcher")
     st.write("- Enter the intended output Google drive folder link")
@@ -758,7 +758,9 @@ def create_mediaconvert_job(input_key1, input_key2, input_key3, output_key):
                     "DefaultSelection": "DEFAULT"
                 }
             },
-            "VideoSelector": {},
+            "VideoSelector": {
+                "Rotate": "DEGREES_180"
+                },
             "TimecodeSource": "ZEROBASED",
             "FileInput": f"s3://{BUCKET_NAME}/{input_key2}"
         }
@@ -772,7 +774,9 @@ def create_mediaconvert_job(input_key1, input_key2, input_key3, output_key):
                         "DefaultSelection": "DEFAULT"
                     }
                 },
-                "VideoSelector": {},
+                "VideoSelector": {
+                    "Rotate": "DEGREES_180"
+                },
                 "TimecodeSource": "ZEROBASED",
                 "FileInput": f"s3://{BUCKET_NAME}/{input_key3}"
             }
@@ -844,6 +848,7 @@ def create_mediaconvert_job(input_key1, input_key2, input_key3, output_key):
     except ClientError as e:
         st.error(f"Error creating MediaConvert job: {e}")
         return None
+
 
 # The main part of your script should be updated as follows:
 if st.button("Start Concatenation"):
@@ -971,7 +976,7 @@ if (video_csv and st.session_state['final_auth']) and download_videos:
                         download_file_from_google_drive(judge_file_id, judge_output_path, drive_service)
                         print(f"Row {index + 1}/{total_rows}: Downloaded judge video for {name}")
                     except:
-                        print(f"Couldn't download judge video for row {i+1}.")
+                        print(f"Couldn't download judge video for row {index+1}.")
 
                 # Update progress
                 progress = (index + 1) / total_rows
