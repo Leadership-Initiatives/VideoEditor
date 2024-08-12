@@ -323,7 +323,7 @@ if sheet_url is not None and program and team_video_button and st.session_state[
                     # Construct the video URL
                     video_url = f"https://cdn.shotstack.io/au/v1/1cr8ajwibd/{id}.mp4"
                     print(video_url)
-
+  
                     name = row.get('name', row.get('name1', 'unnamed'))
                     main_video_file = f"{name}_main.mp4"
                     time.sleep(5)
@@ -339,7 +339,7 @@ if sheet_url is not None and program and team_video_button and st.session_state[
                     creds_dict['client_id'] = client_info['client_id']
                     creds_dict['client_secret'] = client_info['client_secret']
                     creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
-
+                    
                     # Create a mock row for process_video function
                     mock_row = {
                         'name': name,
@@ -347,6 +347,7 @@ if sheet_url is not None and program and team_video_button and st.session_state[
                         'main': main_video_file
                     }
 
+                    
 
                     process_video_data = (index, mock_row, videos_directory, creds_dict, folder_id, sheet_id)
                     intro_process_video(process_video_data)
@@ -366,18 +367,20 @@ if sheet_url is not None and program and team_video_button and st.session_state[
 
 if sheet_url is not None and program and solo_video_button and st.session_state['final_auth']:
     with st.spinner("Processing videos (may take a few minutes)..."):
+
         folder_id = extract_id_from_url(folder_id)
         # Load the CSV file into a dataframe
         # Extract the sheet ID from the URL
         sheet_id = extract_id_from_url(sheet_url)
-        
+        st.session_state['creds']['refresh_token'] = st.session_state['creds']['_refresh_token']
         # Use the Google Sheets API to fetch the data
         creds = Credentials.from_authorized_user_info(st.session_state['creds'])
+
         service = build('sheets', 'v4', credentials=creds)
         sheet = service.spreadsheets()
         result = sheet.values().get(spreadsheetId=sheet_id, range='A:Z').execute()
         values = result.get('values', [])
-        
+
         if not values:
             st.error('No data found in the sheet.')
         else:
@@ -414,7 +417,7 @@ if sheet_url is not None and program and solo_video_button and st.session_state[
                     MergeField(find="name", replace=row.get('name', row.get('name1', ''))),
                     MergeField(find="school", replace=row.get('school', row.get('name2', ''))),
                     MergeField(find="location", replace=row.get('location', row.get('name3', ''))),
-                    MergeField(find="year", replace='Class of ' + str(round(row['year'])) if 'year' in row else row.get('name4', '')),
+                    MergeField(find="year", replace='Class of ' + row['year'] if 'year' in row else row.get('name4', '')),
                 ]
 
                 # Create the template render object
@@ -473,7 +476,7 @@ if sheet_url is not None and program and solo_video_button and st.session_state[
                     }
 
 
-                    process_video_data = (index, mock_row, videos_directory, creds_dict, folder_id)
+                    process_video_data = (index, mock_row, videos_directory, creds_dict, folder_id, sheet_id)
                     intro_process_video(process_video_data)
 
                     # Remove temporary main video file
@@ -759,7 +762,7 @@ def create_mediaconvert_job(input_key1, input_key2, input_key3, output_key):
                 }
             },
             "VideoSelector": {
-                "Rotate": "DEGREES_180"
+                # "Rotate": "DEGREES_180"
                 },
             "TimecodeSource": "ZEROBASED",
             "FileInput": f"s3://{BUCKET_NAME}/{input_key2}"
@@ -775,7 +778,7 @@ def create_mediaconvert_job(input_key1, input_key2, input_key3, output_key):
                     }
                 },
                 "VideoSelector": {
-                    "Rotate": "DEGREES_180"
+                    # "Rotate": "DEGREES_180"
                 },
                 "TimecodeSource": "ZEROBASED",
                 "FileInput": f"s3://{BUCKET_NAME}/{input_key3}"
@@ -928,7 +931,14 @@ def download_file_from_google_drive(file_id, output_path, drive_service):
         f.write(fh.read())
 
 def extract_file_id(url):
-    return url.split('/')[-2]
+    # Handles both types of Google Drive URLs
+    if 'id=' in url:
+        return url.split('id=')[1].split('&')[0]
+    elif '/d/' in url:
+        return url.split('/d/')[1].split('/')[0]
+    else:
+        raise ValueError("Could not extract file ID from URL: " + url)
+
 
 if (video_csv and st.session_state['final_auth']) and download_videos:
     with st.spinner("Downloading videos..."):
